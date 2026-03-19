@@ -7,9 +7,10 @@
 import os
 import numpy as np
 import pickle
+from pathlib import Path
 
 # Define name of TIPS data folder
-data_folder = 'tips_2024'
+data_folder = Path(__file__).parent.parent / 'tips_2024'
 
 # Function for fetching TIPS data from .QTpy files
 def iso_QT(mol_id, iso_id, T):
