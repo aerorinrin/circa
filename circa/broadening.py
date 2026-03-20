@@ -6,6 +6,7 @@
 
 import numpy as np
 from scipy.constants import N_A, c, k
+from scipy.integrate import trapezoid
 
 
 ####### CONSTANTS #######
@@ -19,11 +20,58 @@ T_REF = 296.                # [K]
 
 # Lorentz: Half-width at half maximum (HWHM) for self- and pressure-broadening from HITRAN
 def hwhm_lorentz(T, n_air, p, p_self, gamma_air, gamma_self):
+    """
+    Half width at half max (HWHM) for a Lorentzian (pressure) broadening function.
+
+    Args:
+        T (float)                   : [K] gas temperature (translational)
+        n_air (float, array)        : [-] coefficient of temperature dependence of air-broadened half width
+        p (float)                   : [atm] gas pressure
+        p_self (float)              : [atm] partial pressure of the molecule investigated
+        gamma_air (float, array)    : [cm^-1 atm^-1] air-broadened HWHM for T_ref=296K and p_ref=1atm
+        gamma_self (float, array)   : [cm^-1 atm^-1] self-broadened HWHM for T_ref=296K and p_ref=1atm
+
+    Returns:
+        (float, array)              : [cm^-1] pressure broadening HWHM
+    """
     return (T_REF/T)**n_air * ( gamma_air*(p-p_self) + gamma_self*p_self )
 
 # Doppler: HWHM function from HITRAN
 def hwhm_gauss(nu_ij, T, M):
+    """
+    Half width at half max (HWHM) for a Gaussian (Doppler) broadening function.
+
+    Args:
+        nu_ij (float, array)        : [cm^-1] wavenumber of spectral line transition in vacuum
+        T (float)                   : [K] gas temperature (translational)
+        M (float)                   : [g mol^-1] molar mass of the molecule investigated
+
+    Returns:
+        (float, array)              : [cm^-1] Doppler broadening HWHM
+    """
     return (nu_ij/c) * np.sqrt( 2 * np.log(2) * N_A * k * (T/M) )
+
+# Olivero-Longbothum (1977) approximate Voigt broadening as in NEQAIR96 and RADIS
+def hwhm_olivero(w_l, w_g):
+    """
+    Half width at half max (HWHM) for the approximate Voigt profile by Whiting (1968) as given by 
+    Olivero & Longbothhum (1977) based on empirical fits. The expression should be accurate within 0.01%.
+    Remark that the original expression is given for full width at half max (FWHM), with FWHM=2*HWHM,
+    but using HWHM everywhere should yield the approximate Voigt HWHM.
+
+    Args:
+        w_l (float) : Lorentzian (pressure) broadened HWHM
+        w_g (float) : Gaussian (Doppler) broadening HWHM
+
+    Returns:
+        w_v (float) : Approximate Voigt broadening HWHM
+    """
+    d = (w_l - w_g) / (w_l + w_g)
+    alpha = 0.18121
+    beta = 0.023665 * np.exp(0.6 * d) + 0.00418 * np.exp(-1.9 * d)
+    R = 1 - alpha * (1 - d**2) - beta * np.sin( np.pi * d )
+    w_v = R * (w_l + w_g)
+    return w_v
 
 # Voigt profile approximation from NEQAIR96 user manual (also used by RADIS)
 def broaden_whiting1968(nu, nu_0, w_v, w_l):
@@ -40,126 +88,17 @@ def broaden_whiting1968(nu, nu_0, w_v, w_l):
     z = (delta_nu / w_v_FWHM) ** 2.25
     lineshape = ( 
                   (1 - x) * np.exp(-2.772*y) 
-                  + x * (1 + 4 * y)         
+                  + x / (1 + 4 * y)         
                   + 0.016 * x * (1-x) * ( np.exp(-0.4*z) - 10 / (10+z) )  # 2nd order correction
                 )
-    return lineshape    # TODO: implement normalisation
+    
+    # Integrate over the lineshape to perform normalisation
+    # (Tip from RADIS: Integration is more consistently reliable than the integral approximation from Whiting)
+    integral = trapezoid(lineshape, nu)
 
-############ FROM RADIS #####################
-
-def voigt_lineshape(w_centered, hwhm_lorentz, hwhm_voigt):
-    """Calculates Voigt lineshape using the approximation of the Voigt profile
-    of [NEQAIR-1996]_, [Whiting-1968]_ that maintains a good accuracy in the far wings.
-    Exact for a pure Gaussian and pure Lorentzian.
-
-    Parameters
-    ----------
-    w_centered: 2D array       [one per line: shape W x N]
-        waverange (nm / cm-1) (centered on 0)
-    hwhm_lorentz: array   (cm-1)        [length N]
-        half-width half maximum coefficient (HWHM) for Lorentzian broadening
-    hwhm_voigt: array   (cm-1)        [length N]
-        half-width half maximum coefficient (HWHM) for Voigt broadening,
-        calculated by :py:func:`~radis.lbl.broadening.voigt_broadening_HWHM`
-
-    Other Parameters
-    ----------------
-    jit: boolean
-        if ``True``, use just in time compiler. Usually faster when > 10k lines.
-        Default ``True``.
-
-    Returns
-    -------
-    lineshape: pandas Series        [shape N x W]
-        line profile
-
-    References
-    ----------
-    .. [NEQAIR-1996] `NEQAIR 1996 User Manual, Appendix D <https://ntrs.nasa.gov/search.jsp?R=19970004690>`_
-
-    See Also
-    --------
-    :py:func:`~radis.lbl.broadening.voigt_broadening_HWHM`
-    :py:func:`~radis.lbl.broadening.whiting1968`
-    """
-
-    # Note: Whiting and Olivero use FWHM. Here we keep HWHM in all public function
-    # arguments for consistency.
-    wl = 2 * hwhm_lorentz  # HWHM > FWHM
-    wv = 2 * hwhm_voigt  # HWHM > FWHM
-
-    lineshape = whiting1968(w_centered, wl, wv)
-
-    # Normalization
-    #    integral = wv*(1.065+0.447*(wl/wv)+0.058*(wl/wv)**2)
-    # ... approximation used by Whiting, equation (7)
-    # ... performance: ~ 6µs vs ~84µs for np.trapz(lineshape, w_centered) ):
-    # ... But not used because:
-    # ... - it may yield wrong results when the broadening range is not refined enough
-    # ... - it is defined for wavelengths only. Here we may have wavenumbers as well
-
-    integral = np.trapz(lineshape, w_centered, axis=0)
-
-    # Normalize
-    lineshape /= integral # TODO: implement this integration approach into circa, since the gharavi one is clearly not working
-
+    # Normalise 
+    lineshape = lineshape / integral
     return lineshape
-
-
-def whiting1968(w_centered, wl, wv):
-    r"""A pseudo-voigt analytical approximation.
-
-    .. math::
-        \Phi(w)=\left(1-\frac{w_l}{w_v}\right) \operatorname{exp}\left(-2.772{\left(\frac{w}{w_v}\right)}^{2.25}\right)+\frac{1\frac{w_l}{w_v}}{1+4{\left(\frac{w}{w_v}\right)}^{2.25}}+0.016\left(1-\frac{w_l}{w_v}\right) \frac{w_l}{w_v} \left(\operatorname{exp}\left(-0.4w_{wv,225}\right)-\frac{10}{10+{\left(\frac{w}{w_v}\right)}^{2.25}}\right)
-
-    Parameters
-    ----------
-    w_centered: 2D array
-        broadening spectral range for all lines
-    wl: array
-        Lorentzian FWHM
-    wv: array
-        Voigt FWHM
-
-    References
-    ----------
-    .. [Whiting-1968] `Whiting 1968 "An empirical approximation to the Voigt profile", JQSRT <https://www.sciencedirect.com/science/article/pii/0022407368900812>`_
-
-    Used in the expression of [Olivero-1977]_
-
-    Notes
-    -----
-    Performances:
-
-    using @jit yield a performance increase from 8.9s down to 5.1s
-    on a 50k lines, 250k wavegrid case (performances.py)
-
-    See Also
-    --------
-    :py:func:`~radis.lbl.broadening.olivero_1977`
-
-    """
-    # Calculate some temporary arrays
-    # ... fasten up the calculation by 25% (ex: test on 20 cm-1, ~6000 lines:
-    # ... 20.5.s > 16.5s) on the total eq_spectrum calculation
-    # ... w_wv is typically a (10.001, 1997) array
-    w_wv = w_centered / wv  # w_centered can be ~500 Mb
-    w_wv_2 = w_wv**2
-    wl_wv = wl / wv
-    w_wv_225 = np.abs(w_wv) ** 2.25
-
-    # Calculate!  (>>> this is the performance bottleneck <<< : ~ 2/3 of the time spent
-    #              on lineshape equation below + temp array calculation above
-    #              In particular exp(...) and ()**2.25 are very expensive <<< )
-    # ... Voigt 1st order approximation
-    lineshape = (
-        (1 - wl_wv) * np.exp(-2.772 * w_wv_2)
-        + wl_wv * 1 / (1 + 4 * w_wv_2)
-        # ... 2nd order correction
-        + 0.016 * (1 - wl_wv) * wl_wv * (np.exp(-0.4 * w_wv_225) - 10 / (10 + w_wv_225))
-    )
-    return lineshape
-
 
 
 ####### COMMON INSTRUMENT LINE SHAPES #######
@@ -259,43 +198,74 @@ def compute_broadening_parameters(df, T_rot, p_ambient, p_self, M_self):
                              p_self=p_self,
                              gamma_air=df['gamma_air'],
                              gamma_self=df['gamma_self'])
+                
     # Doppler broadening (Gauss profile)
     df['w_g'] = hwhm_gauss(nu_ij=df['nu'],
                            T=T_rot,
                            M=M_self)
+    
+    # Approximate Voigt broadening (Olivero & Longbothum expression for Whiting approximation)
+    df['w_v'] = hwhm_olivero(w_l=df['w_l'],
+                             w_g=df['w_g'])
+
     return df
 
 
 # Compute broadened spectrum
-def broadening_full(df, nu_min, nu_max, nu_steps):
+def broadening_full(df, nu_min, nu_max, nu_step, wing=20.):
+    """
+    Full line broadening function; applies approximate Voigt broadening to all lines in a given dataframe
+    and adds up the absorption and emission cross-sections for each wavenumber in a given range.
+
+    Args:
+        df (pandas dataframe)   : dataframe containing spectral lines & HWHM parameters w_l and w_v
+        nu_min (float)          : [cm^-1] minimum wavenumber to perform computation for
+        nu_max (float)          : [cm^-1] maximum wavenumber to perform computation for
+        nu_step (float)         : [cm^-1] wavenumber step size
+        wing (float, optional)  : [cm^-1] lineshape wing to account for; defaults to 20.
+
+    Returns:
+        nu_arr (array)      : [cm^-1] wavenumber array
+        sigma_nu (array)    : [?] broadened & combined absorption cross-sections
+        j_nu (array)        : [?] broadened & combined emission cross-sections
+    """
     # Abbreviate dataframe
     df_short = df[ (df['nu'] >= nu_min) & (df['nu'] <= nu_max) ]
 
     # Initiate wavenumber array & list for broadening cross-sections
-    nu_arr = np.arange(nu_min, nu_max, nu_steps)
+    nu_arr = np.arange(nu_min, nu_max, nu_step)
     sigma_nu = np.zeros_like(nu_arr)
     j_nu = np.zeros_like(nu_arr)
 
+    # Pre-compute a grid with relative wavenumbers, centred at 0
+    nu_half = int( wing / nu_step )                             # converts wing width into number of grid steps
+    nu_centred = np.arange(-nu_half, nu_half + 1) * nu_step     # converts grid points to corresponding wavenumbers
+
     # Compute broadening for each line j at all wavenumbers nu
     for _, row in df_short.iterrows():
-        # Narrow down wavenumber array
+        # Pick out central wavenumber for line j
         nu_j = row['nu']
-        nu_j_min = nu_j - 20.
-        nu_j_max = nu_j + 20.
-        nu_mask = (nu_arr>nu_j_min) & (nu_arr<nu_j_max)
-        nu_j_arr = nu_arr [ nu_mask ]
 
-        # Line broadening function (approximate Voigt shape)
-        broadening_j = broaden_whiting1968(nu=nu_j_arr, nu_0=nu_j,
+        # Compute lineshapes on centred grid
+        broadening_j = broaden_whiting1968(nu=nu_centred, nu_0=0.,
                                            w_v=row['w_v'], w_l=row['w_l'])
-        
-        # Absorption cross-section
-        sigma_nu_j = row['sigma_v0'] * broadening_j
-        sigma_nu[nu_mask] = sigma_nu[nu_mask] + sigma_nu_j
 
-        # Emission cross-section
-        j_nu_j = row['epsilon'] * broadening_j
-        j_nu[nu_mask] = j_nu[nu_mask] + j_nu_j
+        # Find where nu_j maps onto nu_arr
+        idx_centre = np.searchsorted(nu_arr, nu_j)
+
+        # Compute slice indices, clamped to array bounds
+        i_start = idx_centre - nu_half
+        i_end = idx_centre + nu_half + 1        # +1 because nu_centred has an odd length
+        
+        # Corresponding slice into nu_centred (edge lines near nu_min/nu_max)
+        k_start = max(0, -i_start)
+        k_end = len(nu_centred) - max(0, i_end - len(nu_arr))
+
+        i_start = max(0, i_start)
+        i_end = i_start + (k_end - k_start)     # derive i_end from k length
+
+        sigma_nu[i_start:i_end] += row['S_j'] * broadening_j[k_start:k_end]
+        j_nu[i_start:i_end] += row['epsilon'] * broadening_j[k_start:k_end]
 
     return nu_arr, sigma_nu, j_nu
 
@@ -331,4 +301,4 @@ def apply_ils(nu, intensity, ils_function, resolution=0.1, wing=5.):
     # Broaden spectrum by convolving with the slit function
     broadened_spectrum = np.convolve( intensity, slit, 'same' ) * step
 
-    return nu[left_bound:right_bound], broadened_spectrum[left_bound:right_bound], 
+    return nu[left_bound:right_bound], broadened_spectrum[left_bound:right_bound]

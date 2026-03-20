@@ -8,7 +8,7 @@ import pandas as pd
 from scipy.constants import k, c
 
 # Import internal functions
-from circa.read_hitran import get_molecule_id, get_dataframe, DELTA_J
+from circa.read_database import get_molecule_id, get_dataframe
 from circa.isotopologues import iso_abundance, iso_mass, iso_Qref
 from circa.partition_sums import iso_QT
 from circa.broadening import compute_broadening_parameters, broadening_full
@@ -21,6 +21,9 @@ C2 = 1.4387769              # [cm K] C2 = h*c/k
 P_ATM = 101325.             # [Pa] atmosphere to Pascal conversion
 T_REF = 296.                # [K]
 h = 6.62607015e-34          # [J s] Planck's constant
+
+# Relate OPQRS branches to change in rotational quantum number
+DELTA_J = {'O': -2, 'P': -1, 'Q': 0, 'R': 1, 'S': 2}
 
 
 ####### LINE STRENGTH #######
@@ -122,7 +125,7 @@ def spectrum_eq(df, molec_id, iso_number, T_eq, p_gas, x):
     M_iso = iso_mass(molec_id, iso_number)
 
     # Compute LTE partition sum
-    Q_T_eq = iso_QT(M=molec_id, I=iso_number, T=T_eq)   # partition sum interpolated from tabulated data for other temperatures
+    Q_T_eq = iso_QT(mol_id=molec_id, iso_id=iso_number, T=T_eq)   # partition sum interpolated from tabulated data for other temperatures
 
     # Compute line strength (scaling of the reference line strengths)
     df_eq['S_j'] = lines_eq(nu_j=df_eq['nu'],
