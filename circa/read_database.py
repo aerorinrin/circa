@@ -97,26 +97,6 @@ HITEMP_ISOTOPOLOGUES = {
     13: {"iso_max":  3, "url": "bzip2format/13_HITEMP2020.par.bz2", "partitioned": False}, # OH
 }
 
-# H2O partition files for different wavenumber ranges (nu_min, nu_max, filename)
-# TODO: Update if and when this is bundled into a bzip2 archive (like CO2)
-HITEMP_H2O_PARTITIONS = [
-    (     0,   500, "01_HITEMP2010_00000-00500_H2O.zip"),
-    (   500,  1000, "01_HITEMP2010_00500-01000_H2O.zip"),
-    (  1000,  2000, "01_HITEMP2010_01000-02000_H2O.zip"),
-    (  2000,  3000, "01_HITEMP2010_02000-03000_H2O.zip"),
-    (  3000,  4000, "01_HITEMP2010_03000-04000_H2O.zip"),
-    (  4000,  5000, "01_HITEMP2010_04000-05000_H2O.zip"),
-    (  5000,  6000, "01_HITEMP2010_05000-06000_H2O.zip"),
-    (  6000,  7000, "01_HITEMP2010_06000-07000_H2O.zip"),
-    (  7000,  8000, "01_HITEMP2010_07000-08000_H2O.zip"),
-    (  8000,  9000, "01_HITEMP2010_08000-09000_H2O.zip"),
-    (  9000, 11000, "01_HITEMP2010_09000-11000_H2O.zip"),
-    ( 11000, 30000, "01_HITEMP2010_11000-30000_H2O.zip"),
-]
-
-# Relate OPQRS branches to change in rotational quantum number
-DELTA_J = {'O': -2, 'P': -1, 'Q': 0, 'R': 1, 'S': 2}
-
 # Column widths and headers for the 160-character HITRAN .par fixed-width format.
 # Molecule-specific formats unpack the quantum-number fields differently.
 HITRAN_FORMAT = {
