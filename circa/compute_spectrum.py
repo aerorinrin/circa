@@ -12,7 +12,7 @@ from circa.read_database import get_molecule_id, get_dataframe
 from circa.isotopologues import iso_abundance, iso_mass, iso_Qref
 from circa.partition_sums import iso_QT
 from circa.broadening import compute_broadening_parameters, broadening_full
-from circa.nlte_populations import population_lte, compute_populations_CO, compute_populations_CO2
+from circa.nlte_populations import compute_populations_CO, compute_populations_CO2
 
 
 ####### CONSTANTS #######
@@ -27,6 +27,11 @@ DELTA_J = {'O': -2, 'P': -1, 'Q': 0, 'R': 1, 'S': 2}
 
 
 ####### LINE STRENGTH #######
+
+# Rovib state populations for LTE conditions
+def population_lte(g, Q, E, T, I_a):
+    exponent = - C2* E / T
+    return I_a * (g/Q) * np.exp(exponent)
 
 # Linestrength nonequilibrium conditions (see Urbanietz et al., 2018)
 def lines_noneq(nu_j, A_ul, p_l, p_u, g_l, g_u):
@@ -116,63 +121,83 @@ def planck(nu, T, epsilon=1):
 ####### COMPUTE LTE AND NLTE SPECTRA #######
 
 # LTE spectra
-def spectrum_eq(df, molec_id, iso_number, T_eq, p_gas, x):
+def spectrum_eq(df, molec_id, iso_lst, T_eq, p_gas, x):
     # Create copy of the dataframe to return at the end
-    df_eq = df
+    df_eq = df.copy()
     
-    # Fetch additional isotopologue information
-    Q_ref_iso = iso_Qref(molec_id, iso_number)          # reference partition sum Q_ref given for T_ref=296K
-    M_iso = iso_mass(molec_id, iso_number)
-
-    # Compute LTE partition sum
-    Q_T_eq = iso_QT(mol_id=molec_id, iso_id=iso_number, T=T_eq)   # partition sum interpolated from tabulated data for other temperatures
+    # Fetch additional isotopologue information and put it into a dataframe
+    M_lst = []
+    I_a_lst = []
+    Q_ref_lst = []
+    Q_T_lst = []
+    for iso in iso_lst:
+        M_iso = iso_mass(molec_id, iso)         # molar mass of the isotopologue
+        I_a_iso = iso_abundance(molec_id, iso)  # isotopologue abundance
+        Q_ref_iso = iso_Qref(molec_id, iso)     # reference partition sum Q_ref given for T_ref=296K
+        Q_T_iso = iso_QT(molec_id, iso, T_eq)   # LTE partition sum interpolated from tabulated data for other temperatures
+        
+        M_lst.append(M_iso)
+        I_a_lst.append(I_a_iso)
+        Q_ref_lst.append(Q_ref_iso)
+        Q_T_lst.append(Q_T_iso)
+    df_iso_data = pd.DataFrame(index=iso_lst, data={"M": M_lst, "I_a": I_a_lst, "Q_ref": Q_ref_lst, "Q_T": Q_T_lst})
 
     # Compute line strength (scaling of the reference line strengths)
     df_eq['S_j'] = lines_eq(nu_j=df_eq['nu'],
                             E_l=df_eq['E_l'],
                             S_ref=df_eq['sw'],
                             T=T_eq,
-                            Q=Q_T_eq,
-                            Q_ref=Q_ref_iso)
+                            Q=df_eq['isotopologue'].map(df_iso_data['Q_T']),
+                            Q_ref=df_eq['isotopologue'].map(df_iso_data['Q_ref']))
     
     # Compute upper state populations (needed for emission coefficients)
     df_eq['p_u'] = population_lte(g=df_eq['g_u'],
-                                  Q=Q_T_eq,
+                                  Q=df_eq['isotopologue'].map(df_iso_data['Q_T']),
                                   E=df_eq['E_l']+df_eq['nu'],
-                                  T=T_eq)
+                                  T=T_eq,
+                                  I_a=df_eq['isotopologue'].map(df_iso_data['I_a']))
     df_eq['p_l'] = population_lte(g=df_eq['g_l'],
-                                  Q=Q_T_eq,
+                                  Q=df_eq['isotopologue'].map(df_iso_data['Q_T']),
                                   E=df_eq['E_l'],
-                                  T=T_eq)
+                                  T=T_eq,
+                                  I_a=df_eq['isotopologue'].map(df_iso_data['I_a']))
 
     # Compute broadening values
-    df_eq = compute_broadening_parameters(df=df_eq, T_rot=T_eq, 
-                               p_ambient=p_gas, p_self=p_gas*x, M_self=M_iso)
+    df_eq = compute_broadening_parameters(df=df_eq, 
+                                          T_rot=T_eq, 
+                                          p_ambient=p_gas, 
+                                          p_self=p_gas*x, 
+                                          M_self=df_eq['isotopologue'].map(df_iso_data['M']))
 
     # Return dataframe with LTE linestrengths
     return df_eq
 
 
 # NLTE spectra of CO and CO2
-def spectrum_noneq(df, molec_id, iso_number, dist, T, p, x):
+def spectrum_noneq(df, molec_id, iso_lst, dist, T, p, x):
     # Create copy of the dataframe to return at the end
-    df_noneq = df
+    df_noneq = df.copy()
 
     # Fetch additional isotopologue information
-    M_iso = iso_mass(molec_id, iso_number)
-    I_abundance = iso_abundance(molec_id, iso_number)
+    M_lst = []
+    for iso in iso_lst:
+        I_a_iso = iso_abundance(molec_id, iso)
+        M_iso = iso_mass(molec_id, iso)
+        M_lst.append(M_iso)
 
-    # Compute populations
-    if molec_id == 2:
-        df_noneq = compute_populations_CO2(iso=iso_number, df=df_noneq, 
-                                           distribution=dist, T_arr=T, 
-                                           I_a=I_abundance)
-    elif molec_id == 5:
-        df_noneq = compute_populations_CO(iso=iso_number, df=df_noneq,
-                                          distribution=dist, T_arr=T,
-                                          I_a=I_abundance)
-    else:
-        raise ValueError("NLTE line computation is currently only supported for CO and CO2.")
+        # Compute populations
+        if molec_id == 2:
+            df_noneq = compute_populations_CO2(iso=iso, df=df_noneq, 
+                                            distribution=dist, T_arr=T, 
+                                            I_a=I_a_iso)
+        elif molec_id == 5:
+            df_noneq = compute_populations_CO(iso=iso, df=df_noneq,
+                                            distribution=dist, T_arr=T,
+                                            I_a=I_a_iso)
+        else:
+            raise ValueError("NLTE line computation is currently only supported for CO and CO2.")
+
+    series_M = pd.Series(index=iso_lst, data=M_lst)
 
     # Compute line strength
     df_noneq['S_j'] = lines_noneq(nu_j=df['nu'],
@@ -183,7 +208,11 @@ def spectrum_noneq(df, molec_id, iso_number, dist, T, p, x):
                                   g_u=df['g_u'])
 
     # Compute line broadening
-    df_noneq = compute_broadening_parameters(df=df_noneq, T_rot=T[0], p_ambient=p, p_self=p*x, M_self=M_iso)
+    df_noneq = compute_broadening_parameters(df=df_noneq, 
+                                             T_rot=T[0], 
+                                             p_ambient=p, 
+                                             p_self=p*x, 
+                                             M_self=df_noneq['isotopologue'].map(series_M))
     
     # Return dataframe with NLTE linestrengths
     return df_noneq
@@ -191,9 +220,13 @@ def spectrum_noneq(df, molec_id, iso_number, dist, T, p, x):
 
 ### MAIN SPECTRUM FUNCTION ###
 def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution='boltzmann', iso_number=1, p_gas=1, x=1, database='hitran', get_absorbance=False, get_computation=False):
+    print("CIRCA: Beginning spectrum simulation.")
 
     # Determine molecule selected (ID and chemical formula)
     mol_id, mol_form = get_molecule_id(molecule)
+
+    # Sort isotopologues into a list
+    iso_lst = sorted( [iso_number] if isinstance(iso_number, int) else list(iso_number) )
 
     # Compute concentration
     if isinstance(T, float):
@@ -205,19 +238,20 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
     n = (p_gas*P_ATM*x) / (k*T_gas) * 1e-6   # convert to [cm^-3]
     
     # Get isotopologue dataframe for requested wavenumber regime
-    df = get_dataframe(mol_form, mol_id, iso_number, nu_min, nu_max, database)
+    df = get_dataframe(mol_form, mol_id, iso_lst, nu_min, nu_max, database)
 
     # Compute spectrum for either LTE or NLTE conditions
     if equilibrium:
         print("\nCIRCA: Computing equilibrium spectrum.")
-        df_lines = spectrum_eq(df, mol_id, iso_number, T_gas, p_gas, x)
+        df_lines = spectrum_eq(df, mol_id, iso_lst, T_gas, p_gas, x)
     elif not equilibrium:
         print("\nCIRCA: Computing nonequilibrium spectrum.")
         # Add upper state rotational quantum numbers J_u from branch info
         df['J_u'] = df['J_l'] + df['branch'].apply(lambda opqrs: DELTA_J.get(opqrs))
-        df_lines = spectrum_noneq(df, mol_id, iso_number, distribution, T, p_gas, x)
+        df_lines = spectrum_noneq(df, mol_id, iso_lst, distribution, T, p_gas, x)
     else:
-        raise ValueError("Please indicate if the gas is in local thermodynamic equilibrium (LTE).")
+        raise ValueError("Please indicate if the gas is in local thermodynamic equilibrium (LTE) or not. \
+                          \nExample: \t spec = spectrum(equilibrium=True, molecule='CO', ...)")
     
     # Compute line emission coefficients
     print("CIRCA: Computing line emission coefficients.")

@@ -186,11 +186,6 @@ def partition_sum(factors):
 def population(J, phi_vib, phi_rot):
     return phi_vib*phi_rot[J]
 
-# Rovib state populations for LTE conditions
-def population_lte(g, Q, E, T):
-    exponent = - C2* E / T
-    return (g/Q) * np.exp(exponent)
-
 # Define 1-Temp-Boltzmann distribution function
 def dist_vib_boltz1(E_vib_i, g_vib_i, T_vib_i):
     factors_v = g_vib_i * np.exp( - C2 * E_vib_i / T_vib_i ) 
@@ -266,7 +261,7 @@ def compute_populations_CO(iso, df, distribution, T_arr, I_a):
         T_rot, T_vib = T_arr
         phi_v = dist_vib_treanor(v_i=v_arr, g_vib_i=1, G_i=G_CO, WEXE_i=WEXE_CO, T_vib_i=T_vib, T_trans=T_rot)
     else:
-        raise ValueError("Unknown vibrational state distribution function:" + str(distribution))
+        raise ValueError("Unknown vibrational state distribution function: " + str(distribution))
         
     # Compute rotational state distribution
     phi_J = dist_rot(J=J_arr, T_J=T_rot, B=B_CO, D=D_CO, H=H_CO, gs=GS_CO, gi=GI_CO)
