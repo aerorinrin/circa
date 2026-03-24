@@ -124,7 +124,7 @@ def planck(nu, T, epsilon=1):
 ####### COMPUTE LTE AND NLTE SPECTRA #######
 
 # LTE spectra
-def spectrum_eq(df, molec_id, iso_lst, T_eq, p_gas, x):
+def spectrum_eq(df, molec_id, iso_lst, T_eq):
     # Create copy of the dataframe to return at the end
     df_eq = df.copy()
     
@@ -167,7 +167,7 @@ def spectrum_eq(df, molec_id, iso_lst, T_eq, p_gas, x):
 
 
 # NLTE spectra of CO and CO2
-def spectrum_noneq(df, molec_id, iso_lst, dist, T, p, x):
+def spectrum_noneq(df, molec_id, iso_lst, dist, T):
     """
     Compute linestrength and broadening parameters for nonequilibrium (NLTE) spectra;
     Currently, only the three most abundant isotopologues of CO2 and CO are supported!
@@ -186,8 +186,6 @@ def spectrum_noneq(df, molec_id, iso_lst, dist, T, p, x):
                 'boltzmann'  : [ T_rot, T_vib_CO ]
                 'boltzmann2' : [ T_rot, T_vib1, T_vib2, d_1, d_2 ]
                 'treanor'    : [ T_rot, T_vib_CO ]
-        p (float): [?] Total gas pressure
-        x (float): [-] Mole fraction of the species molec_id
 
     Raises:
         ValueError: _description_
@@ -298,12 +296,12 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
     # Compute spectrum for either LTE or NLTE conditions
     if equilibrium:
         print("\nCIRCA: Computing equilibrium spectrum.")
-        df_lines = spectrum_eq(df, mol_id, iso_lst, T_gas, p_gas_atm, x)
+        df_lines = spectrum_eq(df, mol_id, iso_lst, T_gas)
     elif not equilibrium:
         print("\nCIRCA: Computing nonequilibrium spectrum.")
         # Add upper state rotational quantum numbers J_u from branch info
         df['J_u'] = df['J_l'] + df['branch'].apply(lambda opqrs: DELTA_J.get(opqrs))
-        df_lines = spectrum_noneq(df, mol_id, iso_lst, distribution, T, p_gas_atm, x)
+        df_lines = spectrum_noneq(df, mol_id, iso_lst, distribution, T)
     else:
         raise ValueError("Please indicate if the gas is in local thermodynamic equilibrium (LTE) or not. \
                           \nExample: \t spec = spectrum(equilibrium=True, molecule='CO', ...)")
