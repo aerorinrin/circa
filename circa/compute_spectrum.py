@@ -53,49 +53,52 @@ def lines_eq(nu_j, E_l, S_ref, T, Q, Q_ref):
 
 # Emission coefficient of a line
 def line_emission(nu_j, A_ul, p_u, molec_density):
-    '''
-    INPUTS: 
+    """
+    Computes the emission cross-section of an individual transition line
+    Args: 
         nu_j = wavenumber of line centre [1 cm^-1]
         A_ul = Einstein-A coefficient of spontaneous emission [1 s^-1]
         p_u = population distribution of the upper state of the transition [-]
         molec_density = gas molecule density (N/V) [molecules cm^-3]
-    OUTPUT: unbroadened integral emission coefficient of the line [mW sr^-1 cm^-3]
-    '''
+    Returns: unbroadened integral emission coefficient of the line [mW sr^-1 cm^-3]
+    """
     delta_E = h * c * nu_j         # [J] energy of the transition
     return delta_E * A_ul * p_u * molec_density / (4 * np.pi) *1e3
 
 # Absorbance (just the Beer-Lambert law)
 def absorbance(sigma, molec_density, L):
-    '''
-    INPUTS: 
+    """
+    Computes the spectral absorbance as per the Beer-Lambert law
+    Args: 
         sigma = absorption cross-section [cm^2 molecule^-1]
         molec_density = gas molecule density (N/V) [molecules cm^-3]
         L = length of optical path [cm]
-    OUTPUT: absorbance [-]
-    '''
+    Returns: absorbance [-]
+    """
     return sigma * molec_density * L
 
 # Transmittance from Beer-Lambert law 
 def transmittance(sigma, molec_density, L):
-    '''
-    INPUTS: 
+    """
+    Args: 
         sigma = absorption cross-section [cm^2 molecule^-1]
         molec_density = gas molecule density (N/V) [molecules cm^-3]
         L = length of optical path [cm]
-    OUTPUT: transmittance [-]
-    '''
+    Returns: transmittance [-]
+    """
     return np.exp( - sigma * molec_density * L ) 
 
 # Radiance (see Pannier & Laux, 2018)
 def radiance(j, sigma, molec_density, L):
-    '''
-    INPUTS: 
+    """
+    Computes the radiance of a spectrum from the emission and absorption cross-sections
+    Args: 
         j = emission cross-section [mW sr^-1 cm^-3]
         sigma = absorption cross-section [cm^2 molecule^-1]
         molec_density = gas molecule density (N/V) [molecules cm^-3]
         L = length of optical path [cm]
-    OUTPUT: radiance of the gas column [mW sr^-1 cm^-2]
-    '''
+    Returns: radiance of the gas column [mW sr^-1 cm^-2]
+    """
     return j * ( 1 - np.exp(- sigma * molec_density * L) ) / (sigma * molec_density )
 
 # Attenuation (see Rutten, 2015)
@@ -126,21 +129,18 @@ def spectrum_eq(df, molec_id, iso_lst, T_eq, p_gas, x):
     df_eq = df.copy()
     
     # Fetch additional isotopologue information and put it into a dataframe
-    M_lst = []
     I_a_lst = []
     Q_ref_lst = []
     Q_T_lst = []
     for iso in iso_lst:
-        M_iso = iso_mass(molec_id, iso)         # molar mass of the isotopologue
         I_a_iso = iso_abundance(molec_id, iso)  # isotopologue abundance
         Q_ref_iso = iso_Qref(molec_id, iso)     # reference partition sum Q_ref given for T_ref=296K
         Q_T_iso = iso_QT(molec_id, iso, T_eq)   # LTE partition sum interpolated from tabulated data for other temperatures
         
-        M_lst.append(M_iso)
         I_a_lst.append(I_a_iso)
         Q_ref_lst.append(Q_ref_iso)
         Q_T_lst.append(Q_T_iso)
-    df_iso_data = pd.DataFrame(index=iso_lst, data={"M": M_lst, "I_a": I_a_lst, "Q_ref": Q_ref_lst, "Q_T": Q_T_lst})
+    df_iso_data = pd.DataFrame(index=iso_lst, data={"I_a": I_a_lst, "Q_ref": Q_ref_lst, "Q_T": Q_T_lst})
 
     # Compute line strength (scaling of the reference line strengths)
     df_eq['S_j'] = lines_eq(nu_j=df_eq['nu'],
@@ -161,13 +161,6 @@ def spectrum_eq(df, molec_id, iso_lst, T_eq, p_gas, x):
                                   E=df_eq['E_l'],
                                   T=T_eq,
                                   I_a=df_eq['isotopologue'].map(df_iso_data['I_a']))
-
-    # Compute broadening values
-    df_eq = compute_broadening_parameters(df=df_eq, 
-                                          T_rot=T_eq, 
-                                          p_ambient=p_gas, 
-                                          p_self=p_gas*x, 
-                                          M_self=df_eq['isotopologue'].map(df_iso_data['M']))
 
     # Return dataframe with LTE linestrengths
     return df_eq
@@ -206,11 +199,8 @@ def spectrum_noneq(df, molec_id, iso_lst, dist, T, p, x):
     df_noneq = df.copy()
 
     # Fetch additional isotopologue information
-    M_lst = []
     for iso in iso_lst:
         I_a_iso = iso_abundance(molec_id, iso)
-        M_iso = iso_mass(molec_id, iso)
-        M_lst.append(M_iso)
 
         # Compute populations
         if molec_id == 2:
@@ -224,8 +214,6 @@ def spectrum_noneq(df, molec_id, iso_lst, dist, T, p, x):
         else:
             raise ValueError("NLTE line computation is currently only supported for CO and CO2.")
 
-    series_M = pd.Series(index=iso_lst, data=M_lst)
-
     # Compute line strength
     df_noneq['S_j'] = lines_noneq(nu_j=df['nu'],
                                   A_ul=df['a'],
@@ -233,20 +221,13 @@ def spectrum_noneq(df, molec_id, iso_lst, dist, T, p, x):
                                   p_u=df['p_u'],
                                   g_l=df['g_l'],
                                   g_u=df['g_u'])
-
-    # Compute line broadening
-    df_noneq = compute_broadening_parameters(df=df_noneq, 
-                                             T_rot=T[0], 
-                                             p_ambient=p, 
-                                             p_self=p*x, 
-                                             M_self=df_noneq['isotopologue'].map(series_M))
     
     # Return dataframe with NLTE linestrengths
     return df_noneq
 
 
 ### MAIN SPECTRUM FUNCTION ###
-def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution='boltzmann', iso_number=1, p_gas=1, x=1, database='hitran', get_absorbance=False, get_computation=False):
+def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution='boltzmann', iso_number=1, p_gas=101325., x=1, database='hitran', get_absorbance=False, get_computation=False):
     """
     Main spectrum computation function
 
@@ -266,32 +247,27 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
         L (float): 
             [cm] Optical path length
         distribution (str, optional): 
-            Vibrational state distribution function ('boltzmann', 'boltzmann2', 'treanor');
-            Defaults to 'boltzmann'
+            Vibrational state distribution function ('boltzmann', 'boltzmann2', 'treanor'); Defaults to 'boltzmann'
         iso_number (int or lst, optional): 
             Local isotopologue numbers to simulate (e.g. [1, 2, 3]); 
             Defaults to 1
-        p_gas (int, optional): 
-            [Pa] Gas pressure; 
-            Defaults to 1
+        p_gas (int, optional): [Pa] Gas pressure; Defaults to 101325 Pa (= 1 atm)
         x (int, optional): 
-            [-] Mole fraction of the investigated species in the gas; 
-            Defaults to 1
+            [-] Mole fraction of the investigated species in the gas; Defaults to 1.
         database (str, optional): 
-            Database to use for the computation ('hitan' or 'hitemp'); 
-            Defaults to 'hitran'
+            Database to use for the computation ('hitan' or 'hitemp'); Defaults to 'hitran'
         get_absorbance (bool, optional): 
-            Return absorbance as a result; 
-            Defaults to False
+            Return absorbance as a result; Defaults to False
         get_computation (bool, optional):
-            Return line dataframe as a result (includes, for instance, upper and lower state populations); 
-            Defaults to False
+            Return line dataframe as a result (includes, for instance, upper and lower state populations); Defaults to False
 
     Raises:
-        ValueError: _description_
+        ValueError: User must indicate if the gas is in Local Thermodynamic Equilibrium (LTE) or not
 
     Returns:
-        _type_: _description_
+        df_spectrum (pandas dataframe): 
+            Spectrum containing 'nu' [cm^-1], 'transmittance' [-], 'radiance' [mW sr^-1 cm^-2], 
+            'absorption_cross_section' [cm^2 molecule^-1], and 'emission_cross_section' [mW sr^-1 cm^-3]
     """
     
     print("CIRCA: Beginning spectrum simulation.")
@@ -331,7 +307,7 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
     else:
         raise ValueError("Please indicate if the gas is in local thermodynamic equilibrium (LTE) or not. \
                           \nExample: \t spec = spectrum(equilibrium=True, molecule='CO', ...)")
-    
+
     # Compute line emission coefficients
     print("CIRCA: Computing line emission coefficients.")
     df_lines['epsilon'] = line_emission(nu_j=df_lines['nu'],
@@ -339,8 +315,18 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
                                         p_u=df_lines['p_u'],
                                         molec_density=n)
     
-    # Compute full broadened spectrum
+    # Compute spectral broadening parameters and apply approximate Voigt broadening function
     print("CIRCA: Computing broadening of the spectrum.")
+    M_lst = []
+    for iso in iso_lst:
+        M_iso = iso_mass(mol_id, iso)
+        M_lst.append(M_iso)
+    series_M = pd.Series(index=iso_lst, data=M_lst)
+    df_lines = compute_broadening_parameters(df=df_lines, 
+                                             T_rot=T_gas, 
+                                             p_ambient=p_gas_atm, 
+                                             p_self=p_gas_atm*x, 
+                                             M_self=df_lines['isotopologue'].map(series_M))
     nu_arr, sigma_nu, j_nu = broadening_full(df_lines, nu_min, nu_max, nu_step)
 
     if get_absorbance:
@@ -396,11 +382,11 @@ def merge_spectra(spectrum_1, spectrum_2):
     Combine two spectra within the same volume of gas
 
     Args:
-        spectrum_1 (_type_): _description_
-        spectrum_2 (_type_): _description_
+        spectrum_1 (pandas dataframe): Spectrum of one gas with 'radiance' and 'transmittance'
+        spectrum_2 (pandas dataframe): Spectrum of second gas with 'radiance' and 'transmittance'
 
     Returns:
-        _type_: _description_
+        (array): Intensity
     """
     I_1 = spectrum_1['radiance'] * (1-spectrum_2['transmittance'])
     I_2 = spectrum_2['radiance'] * (1-spectrum_1['transmittance'])
