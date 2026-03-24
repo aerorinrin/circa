@@ -175,6 +175,33 @@ def spectrum_eq(df, molec_id, iso_lst, T_eq, p_gas, x):
 
 # NLTE spectra of CO and CO2
 def spectrum_noneq(df, molec_id, iso_lst, dist, T, p, x):
+    """
+    Compute linestrength and broadening parameters for nonequilibrium (NLTE) spectra;
+    Currently, only the three most abundant isotopologues of CO2 and CO are supported!
+
+    Args:
+        df (pandas dataframe) : Spectral line dataframe
+        molec_id (int)        : HITRAN molecule ID; Currently only 2 (CO2) and 5 (CO) supported
+        iso_lst (lst)         : Sorted list of local isotopologue IDs being simulated
+        dist (str)            : Vibrational state distribution function ('boltzmann', 'boltzmann2', 'treanor')
+        T (float)             : [K] List of rovibrational state temperatures
+            CO2 :
+                'boltzmann'  : [ T_rot, T_vib_12, T_vib_3 ]
+                'boltzmann2' : [ T_rot, T_vib1, T_vib2, d_1, d_2 ]
+                'treanor'    : [ T_rot, T_vib_12, T_vib_3 ]
+            CO  :
+                'boltzmann'  : [ T_rot, T_vib_CO ]
+                'boltzmann2' : [ T_rot, T_vib1, T_vib2, d_1, d_2 ]
+                'treanor'    : [ T_rot, T_vib_CO ]
+        p (float): [?] Total gas pressure
+        x (float): [-] Mole fraction of the species molec_id
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
     # Create copy of the dataframe to return at the end
     df_noneq = df.copy()
 
@@ -188,12 +215,12 @@ def spectrum_noneq(df, molec_id, iso_lst, dist, T, p, x):
         # Compute populations
         if molec_id == 2:
             df_noneq = compute_populations_CO2(iso=iso, df=df_noneq, 
-                                            distribution=dist, T_arr=T, 
-                                            I_a=I_a_iso)
+                                               distribution=dist, T_arr=T, 
+                                               I_a=I_a_iso)
         elif molec_id == 5:
             df_noneq = compute_populations_CO(iso=iso, df=df_noneq,
-                                            distribution=dist, T_arr=T,
-                                            I_a=I_a_iso)
+                                              distribution=dist, T_arr=T,
+                                              I_a=I_a_iso)
         else:
             raise ValueError("NLTE line computation is currently only supported for CO and CO2.")
 
@@ -220,6 +247,53 @@ def spectrum_noneq(df, molec_id, iso_lst, dist, T, p, x):
 
 ### MAIN SPECTRUM FUNCTION ###
 def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution='boltzmann', iso_number=1, p_gas=1, x=1, database='hitran', get_absorbance=False, get_computation=False):
+    """
+    Main spectrum computation function
+
+    Args:
+        equilibrium (bool): 
+            True/False statement about whether the gas is in LTE or not
+        molecule (str): 
+            Name or chemical formula of the molecule to be simulated (e.g. 'carbon dioxide')
+        nu_min (float): 
+            [cm^-1] Minimum simulation wavenumber
+        nu_max (float): 
+            [cm^-1] Maximum simulation wavenumber
+        nu_step (float): 
+            [cm^-1] Wavenumber step size
+        T (float): 
+            [K] Gas temperature (LTE) or list of rovibrational state temperatures (NLTE)
+        L (float): 
+            [cm] Optical path length
+        distribution (str, optional): 
+            Vibrational state distribution function ('boltzmann', 'boltzmann2', 'treanor');
+            Defaults to 'boltzmann'
+        iso_number (int or lst, optional): 
+            Local isotopologue numbers to simulate (e.g. [1, 2, 3]); 
+            Defaults to 1
+        p_gas (int, optional): 
+            [Pa] Gas pressure; 
+            Defaults to 1
+        x (int, optional): 
+            [-] Mole fraction of the investigated species in the gas; 
+            Defaults to 1
+        database (str, optional): 
+            Database to use for the computation ('hitan' or 'hitemp'); 
+            Defaults to 'hitran'
+        get_absorbance (bool, optional): 
+            Return absorbance as a result; 
+            Defaults to False
+        get_computation (bool, optional):
+            Return line dataframe as a result (includes, for instance, upper and lower state populations); 
+            Defaults to False
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
+    
     print("CIRCA: Beginning spectrum simulation.")
 
     # Determine molecule selected (ID and chemical formula)
@@ -228,14 +302,19 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
     # Sort isotopologues into a list
     iso_lst = sorted( [iso_number] if isinstance(iso_number, int) else list(iso_number) )
 
-    # Compute concentration
+    # Pick out gas temperature from temperature input
     if isinstance(T, float):
         T_gas = T
     elif isinstance(T, int):
         T_gas = float(T)
     else:
         T_gas = T[0]
-    n = (p_gas*P_ATM*x) / (k*T_gas) * 1e-6   # convert to [cm^-3]
+
+    # Compute concentration
+    n = (p_gas*x) / (k*T_gas) * 1e-6    # convert to [cm^-3]
+
+    # Convert pressure input to unit atmosphere [atm] for broadening computations
+    p_gas_atm = p_gas / P_ATM           # [atm]
     
     # Get isotopologue dataframe for requested wavenumber regime
     df = get_dataframe(mol_form, mol_id, iso_lst, nu_min, nu_max, database)
@@ -243,12 +322,12 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
     # Compute spectrum for either LTE or NLTE conditions
     if equilibrium:
         print("\nCIRCA: Computing equilibrium spectrum.")
-        df_lines = spectrum_eq(df, mol_id, iso_lst, T_gas, p_gas, x)
+        df_lines = spectrum_eq(df, mol_id, iso_lst, T_gas, p_gas_atm, x)
     elif not equilibrium:
         print("\nCIRCA: Computing nonequilibrium spectrum.")
         # Add upper state rotational quantum numbers J_u from branch info
         df['J_u'] = df['J_l'] + df['branch'].apply(lambda opqrs: DELTA_J.get(opqrs))
-        df_lines = spectrum_noneq(df, mol_id, iso_lst, distribution, T, p_gas, x)
+        df_lines = spectrum_noneq(df, mol_id, iso_lst, distribution, T, p_gas_atm, x)
     else:
         raise ValueError("Please indicate if the gas is in local thermodynamic equilibrium (LTE) or not. \
                           \nExample: \t spec = spectrum(equilibrium=True, molecule='CO', ...)")
@@ -296,12 +375,33 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
 
 # Function for combining spectra from serial volumes of gas
 def combine_spectra(I_0, next_slab):
+    """
+    Combine two spectra from slabs in series to one another;
+    Radiance I_0 is attenuated over the optical path of the next slab, which may also emit itself.
+
+    Args:
+        I_0 (_type_): _description_
+        next_slab (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     I_L = attenuation(I_0, next_slab['transmittance']) + next_slab['radiance']
     return I_L
 
 
 # Function for combining spectra of joint volumes of gas
 def merge_spectra(spectrum_1, spectrum_2):
+    """
+    Combine two spectra within the same volume of gas
+
+    Args:
+        spectrum_1 (_type_): _description_
+        spectrum_2 (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     I_1 = spectrum_1['radiance'] * (1-spectrum_2['transmittance'])
     I_2 = spectrum_2['radiance'] * (1-spectrum_1['transmittance'])
     return I_1 + I_2
