@@ -41,7 +41,7 @@ def line_emission(nu_j, A_ul, p_u, molec_density):
     Returns: unbroadened integral emission coefficient of the line [mW sr^-1 cm^-3]
     """
     delta_E = h * c * nu_j         # [J] energy of the transition
-    return delta_E * A_ul * p_u * molec_density / (4 * np.pi) *1e3
+    return delta_E * A_ul * p_u * molec_density / (4 * np.pi) * 1e3     # mW correction
 
 # Absorbance (just the Beer-Lambert law)
 def absorbance(sigma, molec_density, L):
@@ -78,25 +78,6 @@ def radiance(j, sigma, molec_density, L):
     Returns: radiance of the gas column [mW sr^-1 cm^-2]
     """
     return j * ( 1 - np.exp(- sigma * molec_density * L) ) / (sigma * molec_density )
-
-# Attenuation (see Rutten, 2015)
-def attenuation(I_0, trans):
-    '''
-    INPUTS: 
-        I_0 = radiative intensity at entry into the volume of gas
-        T = transmittance of the volume of gas [-]
-        L = length of optical path [cm]
-    OUTPUT: intensity at exit from the volume of gas [mW sr^-1 cm^-3]
-    '''
-    return I_0 * np.exp(- trans)
-
-
-# Planck's law
-def planck(nu, T, epsilon=1):
-    exponent = ( C2 * nu) / T
-    I_blackbody = 2 * h * c**2 * nu**3 / (np.exp(exponent) - 1)
-    I_epsilon = epsilon * I_blackbody
-    return I_epsilon * 1e3      # convert to [mW sr^-1 cm^-2]
 
 
 ####### COMPUTE LTE AND NLTE SPECTRA #######
@@ -181,7 +162,7 @@ def spectrum_noneq(df, molec_id, iso_lst, dist, T):
     for iso in iso_lst:
         I_a_iso = iso_abundance(molec_id, iso)
 
-        # Compute populations
+        # Compute populations # TODO: fix isotopologue abundance issue
         if molec_id == 2:
             df_noneq = compute_populations_CO2(iso=iso, df=df_noneq, 
                                                distribution=dist, T_arr=T, 
@@ -334,37 +315,3 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
         if get_absorbance:
             return df_spectrum, absorbance_nu
         return df_spectrum
-
-
-# Function for combining spectra from serial volumes of gas
-def combine_spectra(I_0, next_slab):
-    """
-    Combine two spectra from slabs in series to one another;
-    Radiance I_0 is attenuated over the optical path of the next slab, which may also emit itself.
-
-    Args:
-        I_0 (_type_): _description_
-        next_slab (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    I_L = attenuation(I_0, next_slab['transmittance']) + next_slab['radiance']
-    return I_L
-
-
-# Function for combining spectra of joint volumes of gas
-def merge_spectra(spectrum_1, spectrum_2):
-    """
-    Combine two spectra within the same volume of gas
-
-    Args:
-        spectrum_1 (pandas dataframe): Spectrum of one gas with 'radiance' and 'transmittance'
-        spectrum_2 (pandas dataframe): Spectrum of second gas with 'radiance' and 'transmittance'
-
-    Returns:
-        (array): Intensity
-    """
-    I_1 = spectrum_1['radiance'] * (1-spectrum_2['transmittance'])
-    I_2 = spectrum_2['radiance'] * (1-spectrum_1['transmittance'])
-    return I_1 + I_2
