@@ -104,86 +104,86 @@ def broaden_whiting1968(nu, nu_0, w_v, w_l):
 ####### COMMON INSTRUMENT LINE SHAPES #######
 
 # Rectangular slit function
-def ils_rectangular(x, gamma):
+def ils_rectangular(d_nu, gamma):
     """
     Instrumental (slit) function.
-    B(x) = 1/gamma , if |x| <= gamma/2 & B(x) = 0, if |x| > gamma/2,
+    B(d_nu) = 1/gamma , if |d_nu| <= gamma/2 & B(x) = 0, if |d_nu| > gamma/2,
     where gamma is a slit width or the instrumental resolution.
     """
-    index_inner = np.abs(x) <= gamma/2
+    index_inner = np.abs(d_nu) <= gamma/2
     index_outer = ~index_inner
-    y = np.zeros(len(x))
+    y = np.zeros(len(d_nu))
     y[index_inner] = 1/gamma
     y[index_outer] = 0
     return y
 
 # Triangular slit function
-def ils_triangular(x, gamma):
+def ils_triangular(d_nu, gamma):
     """
     Instrumental (slit) function.
-    B(x) = 1/gamma*(1-|x|/gamma), if |x| ≤ gamma & B(x) = 0, if |x| > gamma,
+    B(d_nu) = 1/gamma*(1-|d_nu|/gamma), if |d_nu| ≤ gamma & B(d_nu) = 0, if |d_nu| > gamma,
     where gamma is the line width equal to the half base of the triangle.
     """
-    index_inner = np.abs(x) <= gamma
+    index_inner = np.abs(d_nu) <= gamma
     index_outer = ~index_inner
-    y = np.zeros(len(x))
-    y[index_inner] = 1/gamma * (1 - np.abs(x[index_inner])/gamma)
+    y = np.zeros(len(d_nu))
+    y[index_inner] = 1/gamma * (1 - np.abs(d_nu[index_inner])/gamma)
     y[index_outer] = 0
     return y
 
 # Gaussian slit function
-def ils_gaussian(x, gamma):
+def ils_gaussian(d_nu, gamma):
     """
     Gaussian line broadening function, where gamma/2 is the Gaussian half-width at half-maximum.
     """
     gamma /= 2
-    return np.sqrt(np.log(2))/(np.sqrt(np.pi)*gamma) * np.exp(-np.log(2) * (x/gamma)**2)
+    return np.sqrt(np.log(2))/(np.sqrt(np.pi)*gamma) * np.exp(-np.log(2) * (d_nu/gamma)**2)
 
 # dispersion slit function
-def ils_dispersion(x, gamma):
+def ils_dispersion(d_nu, gamma):
     """
     Dispersion line broadening function, where gamma/2 is the Lorentzian half-width at half-maximum.
     """
     gamma /= 2
-    return gamma / np.pi / (x**2 + gamma**2)
+    return gamma / np.pi / (d_nu**2 + gamma**2)
 
 # Cosine slit function
-def ils_cosine(x, gamma):
+def ils_cosine(d_nu, gamma):
     """
     Cosine line broadening function.
     """
-    return (np.cos( np.pi/gamma*x ) + 1) / (2*gamma)
+    return (np.cos( np.pi/gamma*d_nu ) + 1) / (2*gamma)
 
 # Diffraction slit function
-def ils_diffraction(x, gamma):
+def ils_diffraction(d_nu, gamma):
     """
     Diffraction line broadening function.
     """
-    y = np.zeros(len(x))
-    index_zero = x==0
+    y = np.zeros(len(d_nu))
+    index_zero = d_nu==0
     index_nonzero = ~index_zero
     dk_ = np.pi / gamma
-    x_ = dk_*x[index_nonzero]
-    w_ = np.sin(x_)
-    r_ = w_**2/x_**2
+    d_nu_ = dk_*d_nu[index_nonzero]
+    w_ = np.sin(d_nu_)
+    r_ = w_**2/d_nu_**2
     y[index_zero] = 1
     y[index_nonzero] = r_ / gamma
     return y
 
 # Apparatus function of the ideal Michelson interferometer
-def ils_michelson(x, gamma):
+def ils_michelson(d_nu, gamma):
     """
     Michelson line broadening function.
-    B(x) = 2/gamma*sin(2pi*x/gamma)/(2pi*x/gamma) if x!=0 else 1,
+    B(d_nu) = 2/gamma*sin(2pi*d_nu/gamma)/(2pi*d_nu/gamma) if d_nu!=0 else 1,
     where 1/gamma is the maximum optical path difference.
     """
-    y = np.zeros(len(x))
-    index_zero = x==0
+    y = np.zeros(len(d_nu))
+    index_zero = d_nu==0
     index_nonzero = ~index_zero
     dk_ = 2 * np.pi / gamma
-    x_ = dk_ * x[index_nonzero]
+    d_nu_ = dk_ * d_nu[index_nonzero]
     y[index_zero] = 1
-    y[index_nonzero] = 2 / gamma * np.sin(x_) / x_
+    y[index_nonzero] = 2 / gamma * np.sin(d_nu_) / d_nu_
     return y
 
 
@@ -212,7 +212,7 @@ def compute_broadening_parameters(df, T_rot, p_ambient, p_self, M_self):
 
 
 # Compute broadened spectrum
-def broadening_full(df, nu_min, nu_max, nu_step, wing=20.):
+def broadening_full(df, nu_min, nu_max, nu_step, wing=5.):
     """
     Full line broadening function; applies approximate Voigt broadening to all lines in a given dataframe
     and adds up the absorption and emission cross-sections for each wavenumber in a given range.
@@ -222,12 +222,12 @@ def broadening_full(df, nu_min, nu_max, nu_step, wing=20.):
         nu_min (float)          : [cm^-1] minimum wavenumber to perform computation for
         nu_max (float)          : [cm^-1] maximum wavenumber to perform computation for
         nu_step (float)         : [cm^-1] wavenumber step size
-        wing (float, optional)  : [cm^-1] lineshape wing to account for; defaults to 20.
+        wing (float, optional)  : [cm^-1] lineshape wing to account for; defaults to 5.
 
     Returns:
         nu_arr (array)      : [cm^-1] wavenumber array
-        sigma_nu (array)    : [?] broadened & combined absorption cross-sections
-        j_nu (array)        : [?] broadened & combined emission cross-sections
+        sigma_nu (array)    : [cm^2 molecule^-1] broadened & combined absorption cross-sections
+        j_nu (array)        : [mW sr^-1 cm^-3] broadened & combined emission cross-sections
     """
     # Abbreviate dataframe
     df_short = df[ (df['nu'] >= nu_min) & (df['nu'] <= nu_max) ]
@@ -246,7 +246,7 @@ def broadening_full(df, nu_min, nu_max, nu_step, wing=20.):
         # Pick out central wavenumber for line j
         nu_j = row['nu']
 
-        # Compute lineshapes on centred grid
+        # Compute line shape on centred grid
         broadening_j = broaden_whiting1968(nu=nu_centred, nu_0=0.,
                                            w_v=row['w_v'], w_l=row['w_l'])
 
@@ -295,7 +295,7 @@ def apply_ils(nu, intensity, ils_function, resolution=0.1, wing=5.):
     slit /= np.sum(slit) * step
 
     # Define convolution bounds, AKA subtract half the slit length from each end
-    left_bound = int( len(slit)/2 )     # avoid floats
+    left_bound = int( len(slit)/2 )             # avoid floats
     right_bound = len(nu) - int( len(slit)/2 )
 
     # Broaden spectrum by convolving with the slit function

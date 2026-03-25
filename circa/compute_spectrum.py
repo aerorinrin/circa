@@ -34,8 +34,8 @@ def line_emission(nu_j, A_ul, p_u, molec_density):
     """
     Computes the emission cross-section of an individual transition line
     Args: 
-        nu_j = wavenumber of line centre [1 cm^-1]
-        A_ul = Einstein-A coefficient of spontaneous emission [1 s^-1]
+        nu_j = wavenumber of line centre [cm^-1]
+        A_ul = Einstein-A coefficient of spontaneous emission [s^-1]
         p_u = population distribution of the upper state of the transition [-]
         molec_density = gas molecule density (N/V) [molecules cm^-3]
     Returns: unbroadened integral emission coefficient of the line [mW sr^-1 cm^-3]
