@@ -1,4 +1,5 @@
-# FUNCTION:     File for computing energy levels for Non-Local Thermal Equilibrium (NLTE) simulations. Expand as needed.
+# FUNCTION:     File for computing energy levels for Non-Local Thermal Equilibrium (NLTE) simulations. 
+#               Expand as needed to accommodate more different molecules.
 # AUTHOR:       I.C. Dumitrescu
 # REFERENCES:
 #   - rotational degeneracy weights (gi & gs) from Šimečková et al. (2006)
@@ -169,6 +170,16 @@ def CO2_Evib(v: NDArray, omega, x_ij, x_l2l2, E_0):
         E_vib_lst.append(nu_CO2 - E_0)
     return np.array(E_vib_lst)
 
+
+####### LINESTRENGTH #######
+
+# Linestrength nonequilibrium conditions (see Urbanietz et al., 2018)
+def lines_nlte(nu_j, A_ul, p_l, p_u, g_l, g_u):
+    part1 = ( g_u * A_ul ) / ( 8 * np.pi * c * nu_j**2 )
+    part2 = p_l / g_l 
+    part3 = p_u / g_u 
+    S_j = part1 * ( part2 - part3 )
+    return S_j
 
 
 ####### ROVIBRATIONAL STATE DISTRIBUTION FUNCTIONS #######

@@ -12,7 +12,8 @@ from circa.read_database import get_molecule_id, get_dataframe
 from circa.isotopologues import iso_abundance, iso_mass, iso_Qref
 from circa.partition_sums import iso_QT
 from circa.broadening import compute_broadening_parameters, broadening_full
-from circa.nlte_populations import compute_populations_CO, compute_populations_CO2
+from circa.lines_lte import lines_lte, population_lte
+from circa.lines_nlte import lines_nlte, compute_populations_CO, compute_populations_CO2
 
 
 ####### CONSTANTS #######
@@ -24,29 +25,6 @@ h = 6.62607015e-34          # [J s] Planck's constant
 
 # Relate OPQRS branches to change in rotational quantum number
 DELTA_J = {'O': -2, 'P': -1, 'Q': 0, 'R': 1, 'S': 2}
-
-
-####### LINE STRENGTH #######
-
-# Rovib state populations for LTE conditions
-def population_lte(g, Q, E, T, I_a):
-    exponent = - C2* E / T
-    return I_a * (g/Q) * np.exp(exponent)
-
-# Linestrength nonequilibrium conditions (see Urbanietz et al., 2018)
-def lines_noneq(nu_j, A_ul, p_l, p_u, g_l, g_u):
-    part1 = ( g_u * A_ul ) / ( 8 * np.pi * c * nu_j**2 )
-    part2 = p_l / g_l 
-    part3 = p_u / g_u 
-    S_j = part1 * ( part2 - part3 )
-    return S_j
-
-# Linestrength equilibrium conditions (see Simeckova et al., 2006)
-def lines_eq(nu_j, E_l, S_ref, T, Q, Q_ref):
-    S_j = S_ref * (Q_ref / Q) * np.exp( - C2 * E_l * (1/T - 1/T_REF) ) * \
-          ( (1-np.exp(-C2*nu_j/T)) / (1-np.exp(-C2*nu_j/T_REF) ) )
-    return S_j
-
 
 
 ####### ABSORPTION & EMISSION SPECTRA #######
@@ -141,14 +119,6 @@ def spectrum_eq(df, molec_id, iso_lst, T_eq):
         Q_ref_lst.append(Q_ref_iso)
         Q_T_lst.append(Q_T_iso)
     df_iso_data = pd.DataFrame(index=iso_lst, data={"I_a": I_a_lst, "Q_ref": Q_ref_lst, "Q_T": Q_T_lst})
-
-    # Compute line strength (scaling of the reference line strengths)
-    df_eq['S_j'] = lines_eq(nu_j=df_eq['nu'],
-                            E_l=df_eq['E_l'],
-                            S_ref=df_eq['sw'],
-                            T=T_eq,
-                            Q=df_eq['isotopologue'].map(df_iso_data['Q_T']),
-                            Q_ref=df_eq['isotopologue'].map(df_iso_data['Q_ref']))
     
     # Compute upper state populations (needed for emission coefficients)
     df_eq['p_u'] = population_lte(g=df_eq['g_u'],
@@ -161,6 +131,14 @@ def spectrum_eq(df, molec_id, iso_lst, T_eq):
                                   E=df_eq['E_l'],
                                   T=T_eq,
                                   I_a=df_eq['isotopologue'].map(df_iso_data['I_a']))
+    
+    # Compute line strength (scaling of the reference line strengths)
+    df_eq['S_j'] = lines_lte(nu_j=df_eq['nu'],
+                             E_l=df_eq['E_l'],
+                             S_ref=df_eq['sw'],
+                             T=T_eq,
+                             Q=df_eq['isotopologue'].map(df_iso_data['Q_T']),
+                             Q_ref=df_eq['isotopologue'].map(df_iso_data['Q_ref']))
 
     # Return dataframe with LTE linestrengths
     return df_eq
@@ -196,6 +174,9 @@ def spectrum_noneq(df, molec_id, iso_lst, dist, T):
     # Create copy of the dataframe to return at the end
     df_noneq = df.copy()
 
+    # Add upper state rotational quantum numbers J_u from branch info
+    df_noneq['J_u'] = df_noneq['J_l'] + df_noneq['branch'].apply(lambda opqrs: DELTA_J.get(opqrs))
+
     # Fetch additional isotopologue information
     for iso in iso_lst:
         I_a_iso = iso_abundance(molec_id, iso)
@@ -213,12 +194,12 @@ def spectrum_noneq(df, molec_id, iso_lst, dist, T):
             raise ValueError("NLTE line computation is currently only supported for CO and CO2.")
 
     # Compute line strength
-    df_noneq['S_j'] = lines_noneq(nu_j=df['nu'],
-                                  A_ul=df['a'],
-                                  p_l=df['p_l'],
-                                  p_u=df['p_u'],
-                                  g_l=df['g_l'],
-                                  g_u=df['g_u'])
+    df_noneq['S_j'] = lines_nlte(nu_j=df['nu'],
+                                 A_ul=df['a'],
+                                 p_l=df['p_l'],
+                                 p_u=df['p_u'],
+                                 g_l=df['g_l'],
+                                 g_u=df['g_u'])
     
     # Return dataframe with NLTE linestrengths
     return df_noneq
@@ -299,8 +280,6 @@ def spectrum(equilibrium, molecule, nu_min, nu_max, nu_step, T, L, distribution=
         df_lines = spectrum_eq(df, mol_id, iso_lst, T_gas)
     elif not equilibrium:
         print("\nCIRCA: Computing nonequilibrium spectrum.")
-        # Add upper state rotational quantum numbers J_u from branch info
-        df['J_u'] = df['J_l'] + df['branch'].apply(lambda opqrs: DELTA_J.get(opqrs))
         df_lines = spectrum_noneq(df, mol_id, iso_lst, distribution, T)
     else:
         raise ValueError("Please indicate if the gas is in local thermodynamic equilibrium (LTE) or not. \
@@ -389,4 +368,3 @@ def merge_spectra(spectrum_1, spectrum_2):
     I_1 = spectrum_1['radiance'] * (1-spectrum_2['transmittance'])
     I_2 = spectrum_2['radiance'] * (1-spectrum_1['transmittance'])
     return I_1 + I_2
-
